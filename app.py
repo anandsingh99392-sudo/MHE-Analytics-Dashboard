@@ -39,79 +39,114 @@ HY-001,Hydra,ACE 14T,Construction Site A,Projects,2021-03-08,2024-01-10,3400,185
 HY-002,Hydra,Action 12T,Construction Site B,Projects,2020-09-15,2024-01-05,4100,195,240,81.25,11,49.5,372.73,4.5,Operational,High,OP-111,13500,2024-02-12
 HY-003,Hydra,Escorts 10T,Warehouse C,Operations,2022-05-22,2023-12-28,2200,160,240,66.67,6,21,366.67,3.5,Operational,Medium,OP-112,6800,2024-02-28
 TL-001,Trailer,Utility 40ft,Distribution Center,Logistics,2019-06-10,2024-01-08,6200,200,240,83.33,8,24,775.0,3.0,Operational,Medium,OP-113,8500,2024-03-01
-TL-002,Location/Warehouse A,Operations,2020-02-28,2024-01-15,4900,195,240,81.25,14,42,350.0,3.0,Operational,High,OP-116,10200,2024-02-18
+TL-002,Trailer,Flatbed 50ft,Warehouse A,Operations,2020-02-28,2024-01-15,4900,195,240,81.25,14,42,350.0,3.0,Operational,High,OP-116,10200,2024-02-18
 SL-001,Scissor Lift,JLG 3246ES,Warehouse A,Maintenance,2021-02-20,2024-01-12,3100,150,240,62.5,8,20,387.5,2.5,Operational,Medium,OP-120,6400,2024-02-20
 SL-002,Scissor Lift,Genie GS-2632,Warehouse B,Maintenance,2020-08-14,2024-01-05,3800,160,240,66.67,9,22.5,422.22,2.5,Operational,Medium,OP-121,7200,2024-02-15
 SL-003,Scissor Lift,Skyjack SJIII 4632,Manufacturing Plant,Maintenance,2022-06-30,2023-12-20,1800,140,240,58.33,5,10,360.0,2.0,Operational,Low,OP-122,3800,2024-03-05
 SL-004,Scissor Lift,Haulotte Compact 12,Assembly Line,Production,2021-10-25,2024-01-08,2600,155,240,64.58,7,14,371.43,2.0,Operational,Medium,OP-123,5100,2024-02-25'''
 
-    # Parse data
-    lines = raw_data.split('\n')
-    
-    # Find equipment master data section
-    master_data_start = None
-    for i, line in enumerate(lines):
-        if "SECTION 1: EQUIPMENT MASTER DATA" in line:
-            master_data_start = i + 2
-            break
-    
-    if master_data_start:
-        # Extract master data lines
-        master_lines = []
-        i = master_data_start
-        while i < len(lines) and lines[i].strip() and not lines[i].startswith('#'):
-            master_lines.append(lines[i])
-            i += 1
+    try:
+        # Parse data
+        lines = raw_data.split('\n')
         
-        # Convert to DataFrame
-        if master_lines:
-            master_df = pd.read_csv(io.StringIO('\n'.join(master_lines)))
-            # Fix column names if needed
-            if 'Location/Warehouse A' in master_df.columns:
-                master_df = master_df.rename(columns={'Location/Warehouse A': 'Location'})
+        # Find equipment master data section
+        master_data_start = None
+        for i, line in enumerate(lines):
+            if "SECTION 1: EQUIPMENT MASTER DATA" in line:
+                master_data_start = i + 2
+                break
+        
+        if master_data_start:
+            # Extract master data lines
+            master_lines = []
+            i = master_data_start
+            while i < len(lines) and lines[i].strip() and not lines[i].startswith('#'):
+                master_lines.append(lines[i])
+                i += 1
             
-            # Convert date columns
-            date_cols = ['Purchase_Date', 'Last_Maintenance_Date', 'Next_Scheduled_Maintenance']
-            for col in date_cols:
-                if col in master_df.columns:
-                    master_df[col] = pd.to_datetime(master_df[col])
-            
-            return master_df
+            # Convert to DataFrame
+            if master_lines:
+                master_df = pd.read_csv(io.StringIO('\n'.join(master_lines)))
+                
+                # Fix column names if needed
+                if 'Location/Warehouse A' in master_df.columns:
+                    master_df = master_df.rename(columns={'Location/Warehouse A': 'Location'})
+                
+                # Convert date columns
+                date_cols = ['Purchase_Date', 'Last_Maintenance_Date', 'Next_Scheduled_Maintenance']
+                for col in date_cols:
+                    if col in master_df.columns:
+                        master_df[col] = pd.to_datetime(master_df[col], errors='coerce')
+                
+                # Add missing columns with default values if they don't exist
+                required_cols = ['Status', 'Maintenance_Cost_YTD', 'Equipment_Type', 'Location', 'Utilization_Percentage']
+                for col in required_cols:
+                    if col not in master_df.columns:
+                        if col == 'Status':
+                            master_df[col] = 'Operational'
+                        elif col == 'Maintenance_Cost_YTD':
+                            master_df[col] = 0
+                        else:
+                            master_df[col] = ''
+                
+                return master_df
+        
+        return pd.DataFrame()
     
-    return pd.DataFrame()
+    except Exception as e:
+        st.error(f"Error loading data: {str(e)}")
+        return pd.DataFrame()
 
 # Load data
 equipment_df = load_data()
 
+# Check if data is empty
+if equipment_df.empty:
+    st.error("No equipment data loaded. Please check the data source.")
+    st.stop()
+
 # Sidebar filters
 st.sidebar.title("🔧 Filters")
-equipment_types = equipment_df['Equipment_Type'].unique()
-selected_types = st.sidebar.multiselect(
-    "Select Equipment Types",
-    equipment_types,
-    default=list(equipment_types)
-)
 
-locations = equipment_df['Location'].unique()
-selected_locations = st.sidebar.multiselect(
-    "Select Locations",
-    locations,
-    default=list(locations)
-)
+if 'Equipment_Type' in equipment_df.columns:
+    equipment_types = equipment_df['Equipment_Type'].unique()
+    selected_types = st.sidebar.multiselect(
+        "Select Equipment Types",
+        equipment_types,
+        default=list(equipment_types)
+    )
+else:
+    selected_types = []
 
-statuses = equipment_df['Status'].unique()
-selected_statuses = st.sidebar.multiselect(
-    "Select Status",
-    statuses,
-    default=list(statuses)
-)
+if 'Location' in equipment_df.columns:
+    locations = equipment_df['Location'].unique()
+    selected_locations = st.sidebar.multiselect(
+        "Select Locations",
+        locations,
+        default=list(locations)
+    )
+else:
+    selected_locations = []
+
+if 'Status' in equipment_df.columns:
+    statuses = equipment_df['Status'].unique()
+    selected_statuses = st.sidebar.multiselect(
+        "Select Status",
+        statuses,
+        default=list(statuses)
+    )
+else:
+    selected_statuses = []
 
 # Apply filters
-filtered_df = equipment_df[
-    (equipment_df['Equipment_Type'].isin(selected_types)) &
-    (equipment_df['Location'].isin(selected_locations)) &
-    (equipment_df['Status'].isin(selected_statuses))
-]
+if selected_types and selected_locations and selected_statuses:
+    filtered_df = equipment_df[
+        (equipment_df['Equipment_Type'].isin(selected_types)) &
+        (equipment_df['Location'].isin(selected_locations)) &
+        (equipment_df['Status'].isin(selected_statuses))
+    ]
+else:
+    filtered_df = equipment_df
 
 # Main dashboard
 st.title("🏭 MHE Equipment Analytics Dashboard")
@@ -122,79 +157,101 @@ col1, col2, col3, col4 = st.columns(4)
 with col1:
     st.metric("Total Equipment", len(filtered_df))
 with col2:
-    avg_util = filtered_df['Utilization_Percentage'].mean()
-    st.metric("Avg Utilization", f"{avg_util:.1f}%")
+    if 'Utilization_Percentage' in filtered_df.columns:
+        avg_util = filtered_df['Utilization_Percentage'].mean()
+        st.metric("Avg Utilization", f"{avg_util:.1f}%")
+    else:
+        st.metric("Avg Utilization", "N/A")
 with col3:
-    total_cost = filtered_df['Maintenance_Cost_YTD'].sum()
-    st.metric("Total Cost", f"${total_cost:,}")
+    if 'Maintenance_Cost_YTD' in filtered_df.columns:
+        total_cost = filtered_df['Maintenance_Cost_YTD'].sum()
+        st.metric("Total Cost", f"${total_cost:,.0f}")
+    else:
+        st.metric("Total Cost", "N/A")
 with col4:
-    under_maintenance = filtered_df[filtered_df['Status'] == 'Under Maintenance'].shape[0]
-    st.metric("Under Maintenance", under_maintenance)
+    if 'Status' in filtered_df.columns:
+        under_maintenance = filtered_df[filtered_df['Status'] == 'Under Maintenance'].shape[0]
+        st.metric("Under Maintenance", under_maintenance)
+    else:
+        st.metric("Under Maintenance", "N/A")
 
 # Charts
 st.subheader("📊 Performance Analysis")
 tab1, tab2, tab3 = st.tabs(["Utilization", "Cost Analysis", "Equipment Details"])
 
 with tab1:
-    # Utilization chart
-    util_by_type = filtered_df.groupby('Equipment_Type')['Utilization_Percentage'].mean().reset_index()
-    fig = px.bar(
-        util_by_type,
-        x='Equipment_Type',
-        y='Utilization_Percentage',
-        title='Average Utilization by Equipment Type',
-        color='Utilization_Percentage'
-    )
-    st.plotly_chart(fig, use_container_width=True)
-    
-    # Top performers
-    top_util = filtered_df.nlargest(5, 'Utilization_Percentage')
-    fig2 = px.bar(
-        top_util,
-        x='Equipment_ID',
-        y='Utilization_Percentage',
-        title='Top 5 Equipment by Utilization',
-        color='Equipment_Type'
-    )
-    st.plotly_chart(fig2, use_container_width=True)
+    if 'Equipment_Type' in filtered_df.columns and 'Utilization_Percentage' in filtered_df.columns:
+        # Utilization chart
+        util_by_type = filtered_df.groupby('Equipment_Type')['Utilization_Percentage'].mean().reset_index()
+        fig = px.bar(
+            util_by_type,
+            x='Equipment_Type',
+            y='Utilization_Percentage',
+            title='Average Utilization by Equipment Type',
+            color='Utilization_Percentage',
+            color_continuous_scale='Blues'
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Top performers
+        if len(filtered_df) > 0:
+            top_util = filtered_df.nlargest(5, 'Utilization_Percentage')
+            if len(top_util) > 0:
+                fig2 = px.bar(
+                    top_util,
+                    x='Equipment_ID',
+                    y='Utilization_Percentage',
+                    title='Top 5 Equipment by Utilization',
+                    color='Equipment_Type'
+                )
+                st.plotly_chart(fig2, use_container_width=True)
+    else:
+        st.info("Utilization data not available")
 
 with tab2:
-    # Cost analysis
-    cost_by_type = filtered_df.groupby('Equipment_Type')['Maintenance_Cost_YTD'].sum().reset_index()
-    fig3 = px.bar(
-        cost_by_type,
-        x='Equipment_Type',
-        y='Maintenance_Cost_YTD',
-        title='Maintenance Cost by Equipment Type',
-        color='Maintenance_Cost_YTD'
-    )
-    st.plotly_chart(fig3, use_container_width=True)
-    
-    # Cost vs Utilization
-    fig4 = px.scatter(
-        filtered_df,
-        x='Utilization_Percentage',
-        y='Maintenance_Cost_YTD',
-        size='Operating_Hours_Total',
-        color='Equipment_Type',
-        hover_name='Equipment_ID',
-        title='Cost vs Utilization Analysis'
-    )
-    st.plotly_chart(fig4, use_container_width=True)
+    if 'Equipment_Type' in filtered_df.columns and 'Maintenance_Cost_YTD' in filtered_df.columns:
+        # Cost analysis
+        cost_by_type = filtered_df.groupby('Equipment_Type')['Maintenance_Cost_YTD'].sum().reset_index()
+        fig3 = px.bar(
+            cost_by_type,
+            x='Equipment_Type',
+            y='Maintenance_Cost_YTD',
+            title='Maintenance Cost by Equipment Type',
+            color='Maintenance_Cost_YTD',
+            color_continuous_scale='Reds'
+        )
+        st.plotly_chart(fig3, use_container_width=True)
+        
+        # Cost vs Utilization
+        if 'Operating_Hours_Total' in filtered_df.columns:
+            fig4 = px.scatter(
+                filtered_df,
+                x='Utilization_Percentage',
+                y='Maintenance_Cost_YTD',
+                size='Operating_Hours_Total',
+                color='Equipment_Type',
+                hover_name='Equipment_ID',
+                title='Cost vs Utilization Analysis'
+            )
+            st.plotly_chart(fig4, use_container_width=True)
+    else:
+        st.info("Cost analysis data not available")
 
 with tab3:
     # Equipment details table
-    st.dataframe(
-        filtered_df,
-        column_config={
-            "Purchase_Date": st.column_config.DateColumn("Purchase Date"),
-            "Last_Maintenance_Date": st.column_config.DateColumn("Last Maintenance"),
-            "Next_Scheduled_Maintenance": st.column_config.DateColumn("Next Maintenance"),
-            "Maintenance_Cost_YTD": st.column_config.NumberColumn("Maintenance Cost", format="$%d")
-        },
-        use_container_width=True,
-        height=400
-    )
+    display_cols = [col for col in filtered_df.columns if col in [
+        'Equipment_ID', 'Equipment_Type', 'Equipment_Name', 'Location', 'Status',
+        'Utilization_Percentage', 'Maintenance_Cost_YTD', 'Purchase_Date', 'Last_Maintenance_Date'
+    ]]
+    
+    if display_cols:
+        st.dataframe(
+            filtered_df[display_cols],
+            use_container_width=True,
+            height=400
+        )
+    else:
+        st.dataframe(filtered_df, use_container_width=True, height=400)
     
     # Export data
     csv_data = filtered_df.to_csv(index=False)
@@ -207,4 +264,4 @@ with tab3:
 
 # Footer
 st.markdown("---")
-st.caption("© 2026 MHE Analytics Dashboard | Version 1.0")
+st.caption("© 2026 MHE Analytics Dashboard | Version 1.0 | Last Updated: 2026-03-22")
